@@ -6,7 +6,7 @@ const c = @cImport({
 const VirtualNode = struct {
     id: u32,
     parent_id: u32,
-    position: u32,
+    position: f32,
     name: [5]u8,
     ip: [16]u8,
 };
@@ -33,7 +33,7 @@ const HashRing = struct {
     fn addNode(self: *HashRing) !void {
         const parent_id = @as(u32, @intCast(self.virtual_nodes.items.len / self.virtual_nodes_per_node));
         var ip: [16]u8 = undefined;
-        _ = try std.fmt.bufPrint(&ip, "192.168.{d}.{d}", .{ self.rng.random().intRangeAtMost(u8, 101, 255), self.rng.random().intRangeAtMost(u8, 1, 254) });
+        _ = try std.fmt.bufPrint(&ip, "192.168.{d}.{d}", .{ self.rng.random().intRangeAtMost(u8, 101, 255), self.rng.random().intRangeAtMost(u8, 101, 254) });
         ip[15] = 0;
 
         var i: u32 = 0;
@@ -42,15 +42,16 @@ const HashRing = struct {
             _ = try std.fmt.bufPrint(&name, "s{d}_{d}", .{ parent_id, i });
             name[4] = 0; // Null-terminate the name
 
+            const position = @mod(HashRing.hash(&name) + @as(f32, @floatFromInt(i)) * (2 * std.math.pi / @as(f32, @floatFromInt(self.virtual_nodes_per_node))), 2 * std.math.pi);
             const virtual_node = VirtualNode{
                 .id = @as(u32, @intCast(self.virtual_nodes.items.len)),
                 .parent_id = parent_id,
-                .position = HashRing.hash(&name),
+                .position = position,
                 .name = name,
                 .ip = ip,
             };
             try self.virtual_nodes.append(virtual_node);
-            std.debug.print("Added node: {s}\n", .{virtual_node.name});
+            std.debug.print("Added node: {s} at position {d:.2}\n", .{ virtual_node.name, virtual_node.position });
         }
     }
 
@@ -82,30 +83,45 @@ const HashRing = struct {
         return a.position < b.position;
     }
 
-    fn hash(key: []const u8) u32 {
+    fn hash(key: []const u8) f32 {
         var h: u32 = 5381;
         for (key) |char| {
             h = ((h << 5) +% h) +% char;
         }
         h = h *% 2654435761;
-        return h % 360;
+        return @as(f32, @floatFromInt(h)) / @as(f32, @floatFromInt(std.math.maxInt(u32))) * 2 * std.math.pi;
     }
 
     fn findNode(self: *HashRing, key: []const u8) ?*VirtualNode {
         const hash_value = HashRing.hash(key);
+        std.debug.print("Finding node for key with hash value: {d:.2}\n", .{hash_value});
+        var closest_node: ?*VirtualNode = null;
+        var smallest_distance: f32 = 2 * std.math.pi; // Maximum possible distance
+
         for (self.virtual_nodes.items) |*node| {
-            if (node.position >= hash_value) {
-                return node;
+            const raw_distance = @abs(node.position - hash_value);
+            const distance = @min(raw_distance, 2 * std.math.pi - raw_distance);
+
+            std.debug.print("Node {s} at position {d:.2}, distance: {d:.2}\n", .{ node.name, node.position, distance });
+
+            if (distance < smallest_distance) {
+                smallest_distance = distance;
+                closest_node = node;
             }
         }
-        return if (self.virtual_nodes.items.len > 0) &self.virtual_nodes.items[0] else null;
+
+        if (closest_node) |node| {
+            std.debug.print("Selected node: {s} at position {d:.2}\n", .{ node.name, node.position });
+        }
+
+        return closest_node;
     }
 };
 
 const RequestState = struct {
     active: bool = false,
     timer: f32 = 0,
-    position: u32 = 0,
+    position: f32 = 0, // Changed from u32 to f32
     target_node: ?*VirtualNode = null,
 };
 
@@ -140,10 +156,17 @@ pub fn main() !void {
         if (c.IsKeyPressed(c.KEY_SPACE) and !request_state.active) {
             request_state.active = true;
             request_state.timer = 2.0;
-            request_state.position = hash_ring.rng.random().intRangeAtMost(u32, 0, 359);
-            var key_buf: [8]u8 = undefined;
-            const key = try std.fmt.bufPrint(&key_buf, "key_{d}", .{hash_ring.rng.random().int(u32)});
+            var key_buf: [16]u8 = undefined;
+            const key = std.fmt.bufPrintZ(&key_buf, "key_{d}", .{hash_ring.rng.random().int(u32)}) catch |err| {
+                std.debug.print("Error generating key: {}\n", .{err});
+                continue;
+            };
+            request_state.position = HashRing.hash(key); // Use the hashed key position
+            std.debug.print("Generated request for key {s} at position: {d:.2}\n", .{ key, request_state.position });
             request_state.target_node = hash_ring.findNode(key);
+            if (request_state.target_node) |target| {
+                std.debug.print("Request at {d:.2} routed to node {s} at position {d:.2}\n", .{ request_state.position, target.name, target.position });
+            }
         }
 
         if (request_state.active) {
@@ -166,30 +189,39 @@ pub fn main() !void {
         c.DrawCircleLines(@as(c_int, @intFromFloat(center_x)), @as(c_int, @intFromFloat(center_y)), radius, c.WHITE);
 
         for (hash_ring.virtual_nodes.items) |vnode| {
-            const angle = @as(f32, @floatFromInt(vnode.position)) * std.math.pi / 180.0;
-            const x = center_x + radius * @cos(angle);
-            const y = center_y + radius * @sin(angle);
+            const x = center_x + radius * @cos(vnode.position);
+            const y = center_y + radius * @sin(vnode.position);
             c.DrawCircle(@as(c_int, @intFromFloat(x)), @as(c_int, @intFromFloat(y)), 3, c.PURPLE);
 
-            const label_x = x + 10 * @cos(angle);
-            const label_y = y + 10 * @sin(angle);
-            // Only draw the virtual node name (s0_0, s0_1, etc.) without the IP
-            std.debug.print("Drawn node: {s}\n", .{&vnode.name});
+            const label_x = x + 10 * @cos(vnode.position);
+            const label_y = y + 10 * @sin(vnode.position);
             c.DrawText(&vnode.name, @as(c_int, @intFromFloat(label_x)), @as(c_int, @intFromFloat(label_y)), 10, c.WHITE);
         }
 
         // Draw request visualization
         if (request_state.active) {
-            const angle = @as(f32, @floatFromInt(request_state.position)) * std.math.pi / 180.0;
-            const x = center_x + radius * @cos(angle);
-            const y = center_y + radius * @sin(angle);
-            c.DrawCircle(@as(c_int, @intFromFloat(x)), @as(c_int, @intFromFloat(y)), 5, c.RED);
+            const request_x = center_x + radius * @cos(request_state.position);
+            const request_y = center_y + radius * @sin(request_state.position);
+            c.DrawCircle(@as(c_int, @intFromFloat(request_x)), @as(c_int, @intFromFloat(request_y)), 5, c.RED);
 
             if (request_state.target_node) |target| {
-                const target_angle = @as(f32, @floatFromInt(target.position)) * std.math.pi / 180.0;
-                const target_x = center_x + radius * @cos(target_angle);
-                const target_y = center_y + radius * @sin(target_angle);
-                c.DrawLineEx(c.Vector2{ .x = x, .y = y }, c.Vector2{ .x = target_x, .y = target_y }, 2, c.RED);
+                // Draw an arc from request to target
+                var angle = request_state.position;
+                const arc_color = c.RED;
+                while (true) : (angle += 0.01) {
+                    if (angle >= 2 * std.math.pi) angle -= 2 * std.math.pi;
+                    const x = center_x + radius * @cos(angle);
+                    const y = center_y + radius * @sin(angle);
+
+                    c.DrawCircle(@as(c_int, @intFromFloat(x)), @as(c_int, @intFromFloat(y)), 2, arc_color);
+
+                    if (@abs(angle - target.position) < 0.01 or
+                        (angle > target.position and angle - target.position > std.math.pi)) break;
+                }
+
+                const target_x = center_x + radius * @cos(target.position);
+                const target_y = center_y + radius * @sin(target.position);
+                c.DrawCircle(@as(c_int, @intFromFloat(target_x)), @as(c_int, @intFromFloat(target_y)), 5, c.GREEN);
             }
         }
 
