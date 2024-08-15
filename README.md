@@ -2,6 +2,8 @@
 
 This project is a simulation of consistent hashing using Zig and Raylib. The application visualizes how a hash ring distributes nodes and routes requests to these nodes based on hash values. It demonstrates the addition and removal of nodes in the ring and shows how requests are routed.
 
+<img width="1016" alt="Screenshot 1446-02-11 at 5 29 31 AM" src="https://github.com/user-attachments/assets/3b1866e8-734d-48eb-a244-7d1a354382b9">
+
 ## Prerequisites
 
 To build and run this project, you'll need:
