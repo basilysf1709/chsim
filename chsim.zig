@@ -53,6 +53,7 @@ const HashRing = struct {
             try self.virtual_nodes.append(virtual_node);
             std.debug.print("Added node: {s} at position {d:.2}\n", .{ virtual_node.name, virtual_node.position });
         }
+        self.sortVirtualNodes();
     }
 
     fn removeNode(self: *HashRing) void {
@@ -62,18 +63,21 @@ const HashRing = struct {
                 _ = self.virtual_nodes.popOrNull();
             }
         }
+        self.sortVirtualNodes();
     }
 
     fn sortVirtualNodes(self: *HashRing) void {
-        const items = self.virtual_nodes.items;
-        var i: usize = 0;
-        while (i < items.len - 1) : (i += 1) {
-            var j: usize = 0;
-            while (j < items.len - i - 1) : (j += 1) {
-                if (items[j].position > items[j + 1].position) {
-                    const temp = items[j];
-                    items[j] = items[j + 1];
-                    items[j + 1] = temp;
+        if (self.virtual_nodes.items.len > 0) {
+            const items = self.virtual_nodes.items;
+            var i: usize = 0;
+            while (i < items.len - 1) : (i += 1) {
+                var j: usize = 0;
+                while (j < items.len - i - 1) : (j += 1) {
+                    if (items[j].position > items[j + 1].position) {
+                        const temp = items[j];
+                        items[j] = items[j + 1];
+                        items[j + 1] = temp;
+                    }
                 }
             }
         }
@@ -95,26 +99,22 @@ const HashRing = struct {
     fn findNode(self: *HashRing, key: []const u8) ?*VirtualNode {
         const hash_value = HashRing.hash(key);
         std.debug.print("Finding node for key with hash value: {d:.2}\n", .{hash_value});
-        var closest_node: ?*VirtualNode = null;
-        var smallest_distance: f32 = 2 * std.math.pi; // Maximum possible distance
 
         for (self.virtual_nodes.items) |*node| {
-            const raw_distance = @abs(node.position - hash_value);
-            const distance = @min(raw_distance, 2 * std.math.pi - raw_distance);
-
-            std.debug.print("Node {s} at position {d:.2}, distance: {d:.2}\n", .{ node.name, node.position, distance });
-
-            if (distance < smallest_distance) {
-                smallest_distance = distance;
-                closest_node = node;
+            if (node.position >= hash_value) {
+                std.debug.print("Selected node: {s} at position {d:.2}\n", .{ node.name, node.position });
+                return node;
             }
         }
 
-        if (closest_node) |node| {
-            std.debug.print("Selected node: {s} at position {d:.2}\n", .{ node.name, node.position });
+        // If we've reached here, the hash_value is greater than all node positions,
+        // so we wrap around to the first node
+        if (self.virtual_nodes.items.len > 0) {
+            std.debug.print("Selected node (wrap-around): {s} at position {d:.2}\n", .{ self.virtual_nodes.items[0].name, self.virtual_nodes.items[0].position });
+            return &self.virtual_nodes.items[0];
         }
 
-        return closest_node;
+        return null;
     }
 };
 
