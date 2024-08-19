@@ -62,7 +62,7 @@ Once the application is running, you can interact with the simulation using the 
 
 ## Contributing
 
-Feel free to contribute to this project by submitting issues, improvements, or pull requests. Your feedback and suggestions are welcome!
+Feel free to contribute to this project by submitting issues, improvements, or pull requests. Your feedback and suggestions are welcome! Any kinds of contributions are welcome
 
 ## License
 
